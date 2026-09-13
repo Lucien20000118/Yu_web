@@ -75,6 +75,12 @@
     color: var(--green); font-family: 'Noto Serif TC', serif; font-weight: 700; font-size: 15px; transform: rotate(-6deg);
   }
   .confirm-title { font-family: 'Noto Serif TC', serif; font-size: 19px; font-weight: 700; margin: 0 0 6px; }
+  .confirm-list {
+    text-align: left; background: rgba(255,255,255,0.35); border: 1px dashed var(--line);
+    padding: 14px 16px; margin: 20px 0 0;
+  }
+  .confirm-list .row { display: flex; justify-content: space-between; font-size: 14px; padding: 5px 0; }
+  .confirm-list .row span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
   .register-view { padding: 32px 24px; }
   .register-view p.intro { font-size: 13.5px; color: var(--ink-soft); margin: 0 0 20px; line-height: 1.6; text-align: center; }
   .field { margin-bottom: 16px; }
@@ -310,11 +316,23 @@
       }),
     });
 
+    // 用送出當下的 workingItems（含品項名稱）組出確認畫面要顯示的清單
+    const submittedItems = workingItems.filter(item => item.noodleTypeId);
+    const summaryHtml = submittedItems.length > 0
+      ? submittedItems.map(item => `
+          <div class="row">
+            <span>${item.name}</span>
+            <span>${item.qty} 份</span>
+          </div>
+        `).join('')
+      : `<div class="row"><span>今日不需要叫貨</span></div>`;
+
     document.getElementById('content').innerHTML = `
       <div class="state-view">
         <div class="confirm-stamp">已送出</div>
         <p class="confirm-title">明天的訂購已收到</p>
         <p>大裕製麵廠會依照這份清單準備<br>如需再調整，8 點前都可以重新開啟送出</p>
+        <div class="confirm-list">${summaryHtml}</div>
       </div>
     `;
     document.getElementById('addBtn').style.display = 'none';
