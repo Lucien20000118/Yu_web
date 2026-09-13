@@ -197,7 +197,7 @@
       noodleTypeId: item.noodleTypeId,
       name: item.name,
       usualAmount: item.usualAmount,
-      qty: item.usualAmount,
+      qty: item.qty, // 優先用後端算好的份數（有上次訂單就用上次的，沒有才是平常預設值）
       isNew: false,
     }));
 
@@ -242,12 +242,16 @@
         `;
       }
 
-      const changed = item.qty !== item.usualAmount;
+      const changed = item.usualAmount !== null && item.qty !== item.usualAmount;
+      const usualLabel = item.usualAmount !== null
+        ? `平常訂 ${item.usualAmount} 份${changed ? ' <span class="changed">・已調整</span>' : ''}`
+        : `上次訂購 ${item.qty} 份`;
+
       return `
         <div class="item">
           <div>
             <p class="item-name">${item.name} <button class="remove-item" onclick="removeItem(${item.tempId})">✕</button></p>
-            <p class="item-usual">平常訂 ${item.usualAmount} 份${changed ? ' <span class="changed">・已調整</span>' : ''}</p>
+            <p class="item-usual">${usualLabel}</p>
           </div>
           <div class="stepper">
             <button class="minus" onclick="changeQty(${item.tempId}, -1)">－</button>
