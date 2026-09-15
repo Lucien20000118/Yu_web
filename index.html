@@ -112,6 +112,27 @@
   let liffAccessToken = null;
   let customerData = null;
 
+  /**
+   * 帶逾時機制的 fetch，超過 timeoutMs 沒有回應就自動中斷，
+   * 避免網路卡住時畫面永遠停在「處理中」、使用者沒有任何辦法跳出來
+   */
+  async function fetchWithTimeout_(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || 10000);
+
+    try {
+      const res = await fetch(url, { ...(options || {}), signal: controller.signal });
+      clearTimeout(timer);
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        throw new Error('請求逾時，請確認網路連線後再試一次');
+      }
+      throw err;
+    }
+  }
+
   async function main() {
     try {
       await liff.init({ liffId: '2011570405-tzdACxGL' });
@@ -126,7 +147,7 @@
       liffAccessToken = liff.getAccessToken(); // 後端會拿這個向 LINE 驗證身份，不是單純相信 userId 字串
 
       const url = `${getScriptUrl_()}?action=getCustomerData&userId=${encodeURIComponent(liffUserId)}&accessToken=${encodeURIComponent(liffAccessToken)}`;
-      const res = await fetch(url);
+      const res = await fetchWithTimeout_(url);
       customerData = await res.json();
 
       if (customerData.found) {
@@ -136,7 +157,10 @@
       }
     } catch (err) {
       document.getElementById('content').innerHTML =
-        `<div class="state-view"><p>發生錯誤，請稍後再試或聯繫店家。</p></div>`;
+        `<div class="state-view">
+          <p>${err.message && err.message.includes('逾時') ? err.message : '發生錯誤，請稍後再試或聯繫店家。'}</p>
+          <button class="submit-btn" style="margin-top:16px;" onclick="location.reload()">重新整理</button>
+        </div>`;
       console.error(err);
     }
   }
@@ -161,13 +185,17 @@
         </div>
       </div>
       <div class="footer">
-        <button class="submit-btn" onclick="submitRegister()">建立資料</button>
+        <button class="submit-btn" id="registerSubmitBtn" onclick="submitRegister()">建立資料</button>
         <p class="footnote">建立後即可開始設定平常訂購的麵種</p>
       </div>
     `;
   }
 
+  let isSubmittingRegister = false;
+
   async function submitRegister() {
+    if (isSubmittingRegister) return; // 防止短時間內被連續點擊、重複送出
+
     const name = document.getElementById('regName').value.trim();
     const phone = document.getElementById('regPhone').value.trim();
 
@@ -176,18 +204,30 @@
       return;
     }
 
-    const res = await fetch(getScriptUrl_(), {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'registerCustomer',
-        userId: liffUserId,
-        accessToken: liffAccessToken,
-        name,
-        phone,
-      }),
-    });
-    customerData = await res.json();
-    renderForm_(); // 建好資料後直接切換到訂單畫面，這時品項是空的
+    isSubmittingRegister = true;
+    const btn = document.getElementById('registerSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = '處理中...';
+
+    try {
+      const res = await fetchWithTimeout_(getScriptUrl_(), {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'registerCustomer',
+          userId: liffUserId,
+          accessToken: liffAccessToken,
+          name,
+          phone,
+        }),
+      });
+      customerData = await res.json();
+      renderForm_(); // 建好資料後直接切換到訂單畫面，這時品項是空的
+    } catch (err) {
+      alert(err.message || '送出失敗，請稍後再試一次');
+      isSubmittingRegister = false;
+      btn.disabled = false;
+      btn.textContent = '建立資料';
+    }
   }
 
   // 前端操作用的工作清單，跟 customerData.items 分開，這樣新增/移除時不用一直改動原始資料
@@ -271,7 +311,7 @@
     document.getElementById('content').innerHTML = `
       <div class="items">${rowsHtml}</div>
       <div class="footer">
-        <button class="submit-btn" onclick="submitOrder()">確認送出</button>
+        <button class="submit-btn" id="orderSubmitBtn" onclick="submitOrder()">確認送出</button>
         <p class="footnote">送出前都可以修改，晚上 8 點前有效</p>
       </div>
     `;
@@ -301,20 +341,35 @@
     renderItemsList_();
   }
 
+  let isSubmittingOrder = false;
+
   async function submitOrder() {
+    if (isSubmittingOrder) return; // 防止短時間內被連續點擊、重複送出
+
     const items = workingItems
       .filter(item => item.noodleTypeId) // 還沒選麵種的新品項不送出
       .map(item => ({ noodleTypeId: item.noodleTypeId, qty: item.qty }));
 
-    await fetch(getScriptUrl_(), {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'orderSubmit',
-        userId: liffUserId,
-        accessToken: liffAccessToken,
-        items,
-      }),
-    });
+    isSubmittingOrder = true;
+    const btn = document.getElementById('orderSubmitBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '處理中...'; }
+
+    try {
+      await fetchWithTimeout_(getScriptUrl_(), {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'orderSubmit',
+          userId: liffUserId,
+          accessToken: liffAccessToken,
+          items,
+        }),
+      });
+    } catch (err) {
+      alert(err.message || '送出失敗，請稍後再試一次');
+      isSubmittingOrder = false;
+      if (btn) { btn.disabled = false; btn.textContent = '確認送出'; }
+      return;
+    }
 
     // 用送出當下的 workingItems（含品項名稱）組出確認畫面要顯示的清單
     const submittedItems = workingItems.filter(item => item.noodleTypeId);
